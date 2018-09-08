@@ -74,7 +74,7 @@ async def main():
         pool.create_task(sleepy("B", sleep=5))
         pool.create_task(sleepy("A", sleep=2))
 
-
+loop = asyncio.get_event_loop()
 try:
     loop.run_until_complete(main())
 finally:
