@@ -1,5 +1,10 @@
 # sakaio
 
+[![Build Status](https://img.shields.io/travis/nitely/sakaio.svg?style=flat-square)](https://travis-ci.org/nitely/sakaio)
+[![Coverage Status](https://img.shields.io/coveralls/nitely/sakaio.svg?style=flat-square)](https://coveralls.io/r/nitely/sakaio)
+[![pypi](https://img.shields.io/pypi/v/sakaio.svg?style=flat-square)](https://pypi.python.org/pypi/sakaio)
+[![licence](https://img.shields.io/pypi/l/sakaio.svg?style=flat-square)](https://raw.githubusercontent.com/nitely/sakaio/master/LICENSE)
+
 Swiss Army knife for asyncio. Mainly a playground
 to work on my asyncio related ideas. Some of it production ready.
 
