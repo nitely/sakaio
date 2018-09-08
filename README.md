@@ -74,9 +74,11 @@ async def main():
         pool.create_task(sleepy("B", sleep=5))
         pool.create_task(sleepy("A", sleep=2))
 
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
-loop.close()
+
+try:
+    loop.run_until_complete(main())
+finally:
+    loop.close()
 
 # This prints
 # A
@@ -105,8 +107,10 @@ async def main():
         pool.create_task(sleepy("A", sleep=2, raise_err=True))
 
 loop = asyncio.get_event_loop()
-loop.run_until_complete(main())
-loop.close()
+try:
+    loop.run_until_complete(main())
+finally:
+    loop.close()
 
 
 # This prints a traceback (A raises and B gets cancelled)
