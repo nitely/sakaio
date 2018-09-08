@@ -69,10 +69,14 @@ async def sleepy(txt, sleep=0):
     print(txt)
 
 
+async def main():
+    async with sakaio.TaskGuard(loop) as pool:
+        pool.create_task(sleepy("B", sleep=5))
+        pool.create_task(sleepy("A", sleep=2))
+
 loop = asyncio.get_event_loop()
-with sakaio.TaskGuard(loop) as pool:
-    pool.create_task(sleepy("B", sleep=5))
-    pool.create_task(sleepy("A", sleep=2))
+loop.run_until_complete(main())
+loop.close()
 
 # This prints
 # A
@@ -95,10 +99,14 @@ async def sleepy(txt, sleep=0, raise_err=False):
     print(txt)
 
 
+async def main():
+    async with sakaio.TaskGuard(loop) as pool:
+        pool.create_task(sleepy("B", sleep=5))
+        pool.create_task(sleepy("A", sleep=2, raise_err=True))
+
 loop = asyncio.get_event_loop()
-async with sakaio.TaskGuard(loop) as pool:
-    pool.create_task(sleepy("B", sleep=5))
-    pool.create_task(sleepy("A", sleep=2, raise_err=True))
+loop.run_until_complete(main())
+loop.close()
 
 
 # This prints a traceback (A raises and B gets cancelled)
