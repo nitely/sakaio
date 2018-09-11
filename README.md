@@ -20,7 +20,7 @@ Python +3.5
 
 ## Concurrent and Sequential pair
 
-Run tasks in a concurrent or sequential way of arbitrary nesting depth.
+Run arbitrary nesting depth tasks concurrently or sequentially.
 
 ```python
 import asyncio
