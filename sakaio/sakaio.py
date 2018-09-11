@@ -12,6 +12,10 @@ async def concurrent(*coros_or_futures, loop=None, return_exceptions=False):
     Similar to ``asyncio.gather`` except it can be used in \
     nested ``concurrent`` or ``sequential`` calls and \
     the result list will get flattened
+
+    In order to cancel a nested sequence of \
+    ``concurrent/sequential``, the outer coroutine \
+    must be created as a task.
     """
     loop = loop or asyncio.get_event_loop()
     results = RetList()

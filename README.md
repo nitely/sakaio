@@ -32,7 +32,6 @@ async def sleepy(txt, sleep=0):
     print(txt)
     return txt
 
-
 loop = asyncio.get_event_loop()
 tasks = sakaio.concurrent(
     sleepy("B", sleep=3),
