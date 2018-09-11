@@ -160,6 +160,10 @@ class ConcurrentSequentialTest(asynctest.TestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
 
+        # So... gather() docs are wrong here.
+        # Cancelling a task, cancels all tasks :(
+        # I can work around that, but I want the
+        # same behaviour as gather (even if buggy). But do I?
         self.assertEqual(ret_order, ['B'])
 
     async def test_concurrent_cancel_inner_ret(self):
