@@ -7,25 +7,72 @@ class RetList(list):
     pass
 
 
-async def concurrent(*coros_or_futures, loop=None, return_exceptions=False):
+RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE = range(3)
+
+
+async def concurrent(
+        *coros_or_futures,
+        loop=None,
+        exception_handling=CANCEL_TASKS_AND_RAISE):
     """
-    Similar to ``asyncio.gather`` except it can be used in \
-    nested ``concurrent`` or ``sequential`` calls and \
-    the result list will get flattened
+    A saner alternative to ``asyncio.gather``
+
+    It can be used in nested ``concurrent`` or \
+    ``sequential`` calls and the result list will \
+    get flattened
 
     In order to cancel a nested sequence of \
     ``concurrent/sequential``, the outer coroutine \
     must be created as a task.
     """
     loop = loop or asyncio.get_event_loop()
+
+    if exception_handling == CANCEL_TASKS_AND_RAISE:
+        return_when = asyncio.FIRST_EXCEPTION
+    else:
+        return_when = asyncio.ALL_COMPLETED
+
+    futs = [
+        asyncio.ensure_future(cf)
+        for cf in coros_or_futures]
+
+    try:
+        done, pending = await asyncio.wait(
+            futs,
+            loop=loop,
+            return_when=return_when)
+    except asyncio.CancelledError:
+        for fut in futs:
+            fut.cancel()
+        raise
+
+    if pending:
+        assert exception_handling == CANCEL_TASKS_AND_RAISE
+        for fut in pending:
+            fut.cancel()
+
+    should_raise = exception_handling in (
+        CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
     results = RetList()
-    tasks = await asyncio.gather(
-        *coros_or_futures, loop=loop, return_exceptions=return_exceptions)
-    for ret in tasks:
-        if isinstance(ret, RetList):
-            results.extend(ret)
+    for fut in futs:
+        if fut.cancelled():
+            try:
+                fut.result()
+            except asyncio.CancelledError as err:
+                results.append(err)
+                continue
+
+        if fut.exception() is not None:
+            if should_raise:
+                raise fut.exception()
+            else:
+                results.append(fut.exception())
+            continue
+
+        if isinstance(fut.result(), RetList):
+            results.extend(fut.result())
         else:
-            results.append(ret)
+            results.append(fut.result())
     return results
 
 

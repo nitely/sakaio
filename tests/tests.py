@@ -114,6 +114,7 @@ class ConcurrentSequentialTest(asynctest.TestCase):
                 do_stuff('C', on_done, cycles=30, raise_err=True),
                 do_stuff('D', on_done, cycles=40),  # won't run
                 do_stuff('E', on_done, cycles=15))
+        await waste_cycles(200)
         self.assertEqual(ret_order, [
             'B', 'E', 'A'])
 
@@ -130,7 +131,8 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             do_stuff('C', on_done, cycles=30, raise_err=True),
             do_stuff('D', on_done, cycles=40),
             do_stuff('E', on_done, cycles=15),
-            return_exceptions=True)
+            exception_handling=sakaio.RETURN_EXCEPTIONS)
+        await waste_cycles(200)
         self.assertEqual(results[:2], [
             'A', 'B'])
         self.assertTrue(isinstance(results[2], SomeException))
@@ -157,14 +159,9 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             do_stuff('E', on_done, cycles=15)))
         await waste_cycles(12)
         c_task.cancel()
-        with self.assertRaises(asyncio.CancelledError):
-            await task
-
-        # So... gather() docs are wrong here.
-        # Cancelling a task, cancels all tasks :(
-        # I can work around that, but I want the
-        # same behaviour as gather (even if buggy). But do I?
-        self.assertEqual(ret_order, ['B'])
+        await waste_cycles(200)
+        await task
+        self.assertEqual(ret_order, ['B', 'E', 'A', 'D'])
 
     async def test_concurrent_cancel_inner_ret(self):
         ret_order = []
@@ -184,7 +181,8 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             c_task,
             do_stuff('D', on_done, cycles=40),
             do_stuff('E', on_done, cycles=15),
-            return_exceptions=True)
+            exception_handling=sakaio.RETURN_EXCEPTIONS)
+        await waste_cycles(200)
         self.assertEqual(results[:2], [
             'A', 'B'])
         self.assertTrue(isinstance(results[2], asyncio.CancelledError))
@@ -208,6 +206,7 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             do_stuff('E', on_done, cycles=15)))
         await waste_cycles(5)
         task.cancel()
+        await waste_cycles(200)
         self.assertEqual(ret_order, [])
 
     async def test_concurrent_cancel_outer_ret(self):
@@ -223,9 +222,10 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             do_stuff('C', on_done, cycles=30),
             do_stuff('D', on_done, cycles=40),
             do_stuff('E', on_done, cycles=15),
-            return_exceptions=True))
+            exception_handling=sakaio.RETURN_EXCEPTIONS))
         await waste_cycles(5)
         task.cancel()
+        await waste_cycles(200)
         self.assertEqual(ret_order, [])
 
     async def test_sequential_err(self):
@@ -244,6 +244,7 @@ class ConcurrentSequentialTest(asynctest.TestCase):
                 do_stuff('C', on_done, cycles=30, raise_err=True),
                 do_stuff('D', on_done, cycles=40),  # won't run
                 do_stuff('E', on_done, cycles=15))  # won't run
+        await waste_cycles(200)
         self.assertEqual(ret_order, [
             'A', 'B'])
 
@@ -268,6 +269,96 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             'D', 'E'])
         self.assertEqual(ret_order, [
             'A', 'B', 'D', 'E'])
+
+    async def test_sequential_cancel_inner(self):
+        ret_order = []
+
+        def on_done(ret):
+            nonlocal ret_order, c_task
+            ret_order.append(ret)
+
+        c_task = self.loop.create_task(
+            do_stuff('C', on_done, cycles=30))
+
+        task = self.loop.create_task(sakaio.sequential(
+            do_stuff('A', on_done, cycles=20),
+            do_stuff('B', on_done, cycles=10),
+            c_task,
+            do_stuff('D', on_done, cycles=40),
+            do_stuff('E', on_done, cycles=15)))
+        await waste_cycles(12)
+        c_task.cancel()
+        await waste_cycles(200)
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await waste_cycles(200)
+
+        self.assertEqual(ret_order, ['A', 'B'])
+
+    async def test_sequential_cancel_inner_ret(self):
+        ret_order = []
+
+        def on_done(ret):
+            nonlocal ret_order, c_task
+            if ret == 'B':
+                c_task.cancel()
+            ret_order.append(ret)
+
+        c_task = self.loop.create_task(
+            do_stuff('C', on_done, cycles=30))
+
+        results = await sakaio.sequential(
+            do_stuff('A', on_done, cycles=20),
+            do_stuff('B', on_done, cycles=10),
+            c_task,
+            do_stuff('D', on_done, cycles=40),
+            do_stuff('E', on_done, cycles=15),
+            return_exceptions=True)
+        self.assertEqual(results[:2], [
+            'A', 'B'])
+        self.assertTrue(isinstance(results[2], asyncio.CancelledError))
+        self.assertEqual(results[3:], [
+            'D', 'E'])
+        self.assertEqual(ret_order, [
+            'A', 'B', 'D', 'E'])
+
+    async def test_sequential_cancel_outer(self):
+        ret_order = []
+
+        def on_done(ret):
+            nonlocal ret_order
+            ret_order.append(ret)
+
+        task = self.loop.create_task(sakaio.sequential(
+            do_stuff('A', on_done, cycles=20),
+            do_stuff('B', on_done, cycles=10),
+            do_stuff('C', on_done, cycles=30),
+            do_stuff('D', on_done, cycles=40),
+            do_stuff('E', on_done, cycles=15)))
+        await waste_cycles(5)
+        task.cancel()
+        await waste_cycles(200)
+        self.assertEqual(ret_order, [])
+
+    async def test_sequential_cancel_outer_ret(self):
+        ret_order = []
+
+        def on_done(ret):
+            nonlocal ret_order
+            ret_order.append(ret)
+
+        task = self.loop.create_task(sakaio.sequential(
+            do_stuff('A', on_done, cycles=20),
+            do_stuff('B', on_done, cycles=10),
+            do_stuff('C', on_done, cycles=30),
+            do_stuff('D', on_done, cycles=40),
+            do_stuff('E', on_done, cycles=15),
+            return_exceptions=True))
+        await waste_cycles(5)
+        task.cancel()
+        await waste_cycles(200)
+        # FIXME should be [] ???
+        self.assertEqual(ret_order, ['B', 'C', 'D', 'E'])
 
 
 class TaskGuardTest(asynctest.TestCase):
@@ -301,6 +392,7 @@ class TaskGuardTest(asynctest.TestCase):
                 guard.create_task(do_stuff('A', on_done, cycles=10))
                 guard.create_task(do_stuff('B', on_done, cycles=20, raise_err=True))
 
+        await waste_cycles(200)
         self.assertEqual(ret_order, ['A'])
 
     async def test_guard_err_outside_err(self):
@@ -319,6 +411,7 @@ class TaskGuardTest(asynctest.TestCase):
                 guard.create_task(do_stuff('B', on_done, cycles=20))
                 raise SomeException()
 
+        await waste_cycles(200)
         self.assertEqual(ret_order, [])
 
     async def test_guard_err_inside_err(self):
@@ -337,6 +430,7 @@ class TaskGuardTest(asynctest.TestCase):
                 await t  # raises
                 raise SomeOtherException("should not raise this")
 
+        await waste_cycles(200)
         self.assertIsNone(cm.exception.__context__)  # No SomeOtherException
         self.assertEqual(ret_order, ['A'])
 
@@ -356,6 +450,7 @@ class TaskGuardTest(asynctest.TestCase):
                 await asyncio.wait([t], loop=loop)
                 raise SomeOtherException()  # gets raised as well
 
+        await waste_cycles(200)
         self.assertIsInstance(cm.exception.__context__, SomeOtherException)
         self.assertEqual(ret_order, ['A'])
 
@@ -373,6 +468,7 @@ class TaskGuardTest(asynctest.TestCase):
             t = guard.create_task(do_stuff('B', on_done, cycles=20))
             t.cancel()
 
+        await waste_cycles(200)
         self.assertEqual(ret_order, ['A', 'C'])
 
 
