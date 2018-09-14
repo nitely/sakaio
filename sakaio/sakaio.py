@@ -146,7 +146,9 @@ async def sequential(*coros_or_futures, loop=None, return_exceptions=False):
         raise error
     return results
 
-
+# XXX we should always wait for all tasks to finish,
+#     even if they ignore cancellation, and chain
+#     all exceptions afterwards.
 class TaskGuard:
     """
     Create tasks and wait for them to finish.
