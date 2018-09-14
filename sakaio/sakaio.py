@@ -26,14 +26,12 @@ async def concurrent(
 
     ``WAIT_TASKS_AND_RAISE`` will wait for \
     all tasks to finish and raise the first \
-    exception afterwards. \
-    If a task is cancelled, it won't cancel the \
-    remaining tasks and the resulting list will contain \
-    the exception as value
+    exception afterwards.
 
     ``CANCEL_TASKS_AND_RAISE`` will raise the \
-    first exception and cancel all remaining tasks. \
-    If a task is cancelled, it won't cancel the \
+    first exception and cancel all remaining tasks.
+
+    In all cases if a task is cancelled, it won't cancel the \
     remaining tasks and the resulting list will contain \
     the exception as value
 
@@ -193,7 +191,7 @@ class TaskGuard:
                 loop=self.loop,
                 return_when=asyncio.FIRST_EXCEPTION)
         except asyncio.CancelledError:
-            # TODO: test! (maybe it's not needed?)
+            # TODO: test!
             for t in self._tasks:
                 t.cancel()
             raise
@@ -204,16 +202,12 @@ class TaskGuard:
                 if t.exception():
                     raise t.exception()
         finally:
+            # XXX cancellation takes an event loop
+            #     cycle to take effect, maybe we should wait?
+            #     but user code should wait for all tasks
+            #     to finish at exit anyway
             for t in pending:
                 t.cancel()
-            if pending:
-                try:
-                    await asyncio.wait(pending, loop=self.loop)
-                except asyncio.CancelledError:
-                    # TODO: test! (maybe it's not needed?)
-                    for t in pending:
-                        t.cancel()
-                    raise
 
     def create_task(self, coro):
         if self._state == self._closed:
