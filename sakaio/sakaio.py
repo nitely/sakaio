@@ -17,8 +17,22 @@ async def concurrent(
     """
     A saner alternative to ``asyncio.gather``
 
+    The ``exception_handling`` has three option \
+    to control how exceptions are handled:
+
+    ``RETURN_EXCEPTIONS`` will wait for \
+    all tasks to finish and return everything as \
+    values including exceptions
+
+    ``WAIT_TASKS_AND_RAISE`` will wait for \
+    all tasks to finish and raise the first \
+    exception afterwards
+
+    ``CANCEL_TASKS_AND_RAISE`` will raise the \
+    first exception and cancel all remaining tasks
+
     It can be used in nested ``concurrent`` or \
-    ``sequential`` calls and the result list will \
+    ``sequential`` calls and the resulting list will \
     get flattened
 
     In order to cancel a nested sequence of \
