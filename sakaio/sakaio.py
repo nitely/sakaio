@@ -17,7 +17,7 @@ async def concurrent(
     """
     A saner alternative to ``asyncio.gather``
 
-    The ``exception_handling`` has three option \
+    The ``exception_handling`` has three options \
     to control how exceptions are handled:
 
     ``RETURN_EXCEPTIONS`` will wait for \
@@ -166,10 +166,16 @@ class TaskGuard:
                     continue
                 t.cancel()
 
-        done, pending = await asyncio.wait(
-            self._tasks,
-            loop=self.loop,
-            return_when=asyncio.FIRST_EXCEPTION)
+        try:
+            done, pending = await asyncio.wait(
+                self._tasks,
+                loop=self.loop,
+                return_when=asyncio.FIRST_EXCEPTION)
+        except asyncio.CancelledError:
+            # TODO: test! (maybe it's not needed?)
+            for t in self._tasks:
+                t.cancel()
+            raise
         try:
             for t in done:
                 if t.cancelled():
@@ -180,7 +186,13 @@ class TaskGuard:
             for t in pending:
                 t.cancel()
             if pending:
-                await asyncio.wait(pending, loop=self.loop)
+                try:
+                    await asyncio.wait(pending, loop=self.loop)
+                except asyncio.CancelledError:
+                    # TODO: test! (maybe it's not needed?)
+                    for t in pending:
+                        t.cancel()
+                    raise
 
     def create_task(self, coro):
         if self._state == self._closed:
