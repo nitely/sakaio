@@ -160,7 +160,12 @@ class ConcurrentSequentialTest(asynctest.TestCase):
         await waste_cycles(12)
         c_task.cancel()
         await waste_cycles(200)
-        await task
+        results = await task
+        self.assertEqual(results[:2], [
+            'A', 'B'])
+        self.assertIsInstance(results[2], asyncio.CancelledError)
+        self.assertEqual(results[3:], [
+            'D', 'E'])
         self.assertEqual(ret_order, ['B', 'E', 'A', 'D'])
 
     async def test_concurrent_cancel_inner_ret(self):
@@ -185,7 +190,7 @@ class ConcurrentSequentialTest(asynctest.TestCase):
         await waste_cycles(200)
         self.assertEqual(results[:2], [
             'A', 'B'])
-        self.assertTrue(isinstance(results[2], asyncio.CancelledError))
+        self.assertIsInstance(results[2], asyncio.CancelledError)
         self.assertEqual(results[3:], [
             'D', 'E'])
         self.assertEqual(ret_order, [

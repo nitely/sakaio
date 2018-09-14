@@ -26,10 +26,16 @@ async def concurrent(
 
     ``WAIT_TASKS_AND_RAISE`` will wait for \
     all tasks to finish and raise the first \
-    exception afterwards
+    exception afterwards. \
+    If a task is cancelled, it won't cancel the \
+    remaining tasks and the resulting list will contain \
+    the exception as value
 
     ``CANCEL_TASKS_AND_RAISE`` will raise the \
-    first exception and cancel all remaining tasks
+    first exception and cancel all remaining tasks. \
+    If a task is cancelled, it won't cancel the \
+    remaining tasks and the resulting list will contain \
+    the exception as value
 
     It can be used in nested ``concurrent`` or \
     ``sequential`` calls and the resulting list will \
@@ -38,6 +44,9 @@ async def concurrent(
     In order to cancel a nested sequence of \
     ``concurrent/sequential``, the outer coroutine \
     must be created as a task.
+
+    If this is created as a task and cancelled, then \
+    all inner tasks will get cancelled as well.
     """
     loop = loop or asyncio.get_event_loop()
 
