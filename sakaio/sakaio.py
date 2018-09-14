@@ -105,12 +105,24 @@ async def sequential(*coros_or_futures, loop=None, return_exceptions=False):
     cancel_all = False
     error = None
     for coro_or_fut in coros_or_futures:
+        coro_or_fut = asyncio.ensure_future(coro_or_fut, loop=loop)
+
         if cancel_all:
-            asyncio.ensure_future(coro_or_fut, loop=loop).cancel()
+            coro_or_fut.cancel()
             continue
 
         try:
-            ret = await coro_or_fut
+            ret = await asyncio.shield(coro_or_fut, loop=loop)
+        except asyncio.CancelledError as err:
+            if coro_or_fut.cancelled():
+                if not return_exceptions:
+                    error = err
+                results.append(err)
+            else:
+                coro_or_fut.cancel()
+                cancel_all = True
+                error = err
+            continue
         except Exception as err:
             if not return_exceptions:
                 cancel_all = True
