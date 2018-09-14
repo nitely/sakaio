@@ -46,6 +46,8 @@ async def concurrent(
     If this is created as a task and cancelled, then \
     all inner tasks will get cancelled as well.
     """
+    assert exception_handling in (
+        RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
     loop = loop or asyncio.get_event_loop()
 
     if exception_handling == CANCEL_TASKS_AND_RAISE:
@@ -156,6 +158,9 @@ class TaskGuard:
     If a task raises an exception, then all remaining tasks
     get cancelled and the first exception is raised. Same thing if
     an exception gets raised within the ``with`` block
+
+    If a task is cancelled and decides to ignore cancellation, the
+    guard will still wait for it to finish
     """
 
     _started, _running, _closed = range(3)
@@ -196,6 +201,7 @@ class TaskGuard:
             # TODO: test!
             for t in self._tasks:
                 t.cancel()
+            await asyncio.wait(self._tasks, loop=self.loop)
             raise
         try:
             for t in done:
@@ -204,12 +210,10 @@ class TaskGuard:
                 if t.exception():
                     raise t.exception()
         finally:
-            # XXX cancellation takes an event loop
-            #     cycle to take effect, maybe we should wait?
-            #     but user code should wait for all tasks
-            #     to finish at exit anyway
             for t in pending:
                 t.cancel()
+            if pending:
+                await asyncio.wait(pending, loop=self.loop)
 
     def create_task(self, coro):
         if self._state == self._closed:
