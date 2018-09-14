@@ -18,4 +18,4 @@ __all__ = [
     'CANCEL_TASKS_AND_RAISE',
     'WAIT_TASKS_AND_RAISE']
 
-__version__ = '1.0'
+__version__ = '2.0'
