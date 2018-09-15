@@ -184,36 +184,37 @@ class TaskGuard:
         if not self._tasks:
             return
 
-        # Cancel all if an exception was raised
-        # within the context manager
         if exc_type is not None:
-            for t in self._tasks:
-                if t.done():
-                    continue
-                t.cancel()
-            await asyncio.wait(self._tasks, loop=self.loop)
+            await self._clean_up()
+            return
 
         try:
-            done, pending = await asyncio.wait(
+            await asyncio.wait(
                 self._tasks,
                 loop=self.loop,
                 return_when=asyncio.FIRST_EXCEPTION)
-        except asyncio.CancelledError:
-            for t in self._tasks:
-                t.cancel()
-            await asyncio.wait(self._tasks, loop=self.loop)
-            raise
+        finally:
+            await self._clean_up()
+
+    async def _clean_up(self):
         try:
-            for t in done:
+            for t in self._tasks:
+                if not t.done():
+                    continue
                 if t.cancelled():
                     continue
                 if t.exception():
                     raise t.exception()
         finally:
-            for t in pending:
+            if not self._tasks:
+                return
+            for t in self._tasks:
                 t.cancel()
-            if pending:
-                await asyncio.wait(pending, loop=self.loop)
+            try:
+                await asyncio.wait(self._tasks, loop=self.loop)
+            except asyncio.CancelledError:
+                await asyncio.wait(self._tasks, loop=self.loop)
+                raise
 
     def create_task(self, coro):
         if self._state == self._closed:
