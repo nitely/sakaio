@@ -21,7 +21,11 @@ async def _sane_wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
             return
         for fut in pending:
             fut.cancel()
-        await asyncio.wait(fs, loop=loop)
+        try:
+            await asyncio.wait(fs, loop=loop)
+        except asyncio.CancelledError:
+            await asyncio.wait(fs, loop=loop)
+            raise
 
 
 class RetList(list):
