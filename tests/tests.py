@@ -20,8 +20,13 @@ async def waste_cycles(cycles):
         await asyncio.sleep(0)
 
 
-async def do_stuff(ret, on_done, cycles, raise_err=False):
-    await waste_cycles(cycles)
+async def do_stuff(ret, on_done, cycles, raise_err=False, ignore_cancel=False):
+    try:
+        await waste_cycles(cycles)
+    except asyncio.CancelledError:
+        if not ignore_cancel:
+            raise
+        await waste_cycles(cycles)
     if raise_err:
         raise SomeException(str(ret))
     on_done(ret)
@@ -450,12 +455,12 @@ class TaskGuardTest(asynctest.TestCase):
         loop = asyncio.get_event_loop()
         with self.assertRaises(SomeException):
             async with sakaio.TaskGuard(loop) as guard:
+                guard.create_task(do_stuff('D', on_done, cycles=200, ignore_cancel=True))
                 guard.create_task(do_stuff('C', on_done, cycles=30))  # will get cancelled
                 guard.create_task(do_stuff('A', on_done, cycles=10))
                 guard.create_task(do_stuff('B', on_done, cycles=20, raise_err=True))
 
-        await waste_cycles(200)
-        self.assertEqual(ret_order, ['A'])
+        self.assertEqual(ret_order, ['A', 'D'])
 
     async def test_guard_err_outside_err(self):
         ret_order = []
@@ -468,13 +473,14 @@ class TaskGuardTest(asynctest.TestCase):
         with self.assertRaises(SomeException):
             async with sakaio.TaskGuard(loop) as guard:
                 # all get cancelled
+                guard.create_task(do_stuff('D', on_done, cycles=200, ignore_cancel=True))
                 guard.create_task(do_stuff('C', on_done, cycles=30))
                 guard.create_task(do_stuff('A', on_done, cycles=10))
                 guard.create_task(do_stuff('B', on_done, cycles=20))
+                await waste_cycles(1)
                 raise SomeException()
 
-        await waste_cycles(200)
-        self.assertEqual(ret_order, [])
+        self.assertEqual(ret_order, ['D'])
 
     async def test_guard_err_inside_err(self):
         ret_order = []
@@ -486,15 +492,15 @@ class TaskGuardTest(asynctest.TestCase):
         loop = asyncio.get_event_loop()
         with self.assertRaises(SomeException) as cm:
             async with sakaio.TaskGuard(loop) as guard:
+                guard.create_task(do_stuff('D', on_done, cycles=200, ignore_cancel=True))
                 guard.create_task(do_stuff('C', on_done, cycles=30))
                 guard.create_task(do_stuff('A', on_done, cycles=10))
                 t = guard.create_task(do_stuff('B', on_done, cycles=20, raise_err=True))
                 await t  # raises
                 raise SomeOtherException("should not raise this")
 
-        await waste_cycles(200)
         self.assertIsNone(cm.exception.__context__)  # No SomeOtherException
-        self.assertEqual(ret_order, ['A'])
+        self.assertEqual(ret_order, ['A', 'D'])
 
     async def test_guard_err_mixed_err(self):
         ret_order = []
@@ -506,15 +512,15 @@ class TaskGuardTest(asynctest.TestCase):
         loop = asyncio.get_event_loop()
         with self.assertRaises(SomeException) as cm:
             async with sakaio.TaskGuard(loop) as guard:
+                guard.create_task(do_stuff('D', on_done, cycles=200, ignore_cancel=True))
                 guard.create_task(do_stuff('C', on_done, cycles=30))  # gets cancelled
                 guard.create_task(do_stuff('A', on_done, cycles=10))
                 t = guard.create_task(do_stuff('B', on_done, cycles=20, raise_err=True))
                 await asyncio.wait([t], loop=loop)
                 raise SomeOtherException()  # gets raised as well
 
-        await waste_cycles(200)
         self.assertIsInstance(cm.exception.__context__, SomeOtherException)
-        self.assertEqual(ret_order, ['A'])
+        self.assertEqual(ret_order, ['A', 'D'])
 
     async def test_guard_cancel_some_task(self):
         ret_order = []
@@ -529,9 +535,28 @@ class TaskGuardTest(asynctest.TestCase):
             guard.create_task(do_stuff('A', on_done, cycles=10))
             t = guard.create_task(do_stuff('B', on_done, cycles=20))
             t.cancel()
-
-        await waste_cycles(200)
         self.assertEqual(ret_order, ['A', 'C'])
+
+    async def test_guard_cancel_outer_task(self):
+        ret_order = []
+
+        def on_done(ret):
+            nonlocal ret_order
+            ret_order.append(ret)
+
+        async def task_guard():
+            loop = asyncio.get_event_loop()
+            async with sakaio.TaskGuard(loop) as guard:
+                guard.create_task(do_stuff('D', on_done, cycles=200, ignore_cancel=True))
+                guard.create_task(do_stuff('C', on_done, cycles=30))
+                guard.create_task(do_stuff('A', on_done, cycles=10))
+                guard.create_task(do_stuff('B', on_done, cycles=20))
+
+        task = self.loop.create_task(task_guard())
+        await waste_cycles(12)
+        task.cancel()
+        await asyncio.wait([task], loop=self.loop)
+        self.assertEqual(ret_order, ['A', 'D'])
 
 
 if __name__ == '__main__':

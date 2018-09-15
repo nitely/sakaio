@@ -191,6 +191,7 @@ class TaskGuard:
                 if t.done():
                     continue
                 t.cancel()
+            await asyncio.wait(self._tasks, loop=self.loop)
 
         try:
             done, pending = await asyncio.wait(
@@ -198,7 +199,6 @@ class TaskGuard:
                 loop=self.loop,
                 return_when=asyncio.FIRST_EXCEPTION)
         except asyncio.CancelledError:
-            # TODO: test!
             for t in self._tasks:
                 t.cancel()
             await asyncio.wait(self._tasks, loop=self.loop)
