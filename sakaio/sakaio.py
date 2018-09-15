@@ -3,6 +3,27 @@
 import asyncio
 
 
+async def _sane_wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
+    if not fs:
+        return
+    loop = loop or asyncio.get_event_loop()
+    fs = [asyncio.ensure_future(fut, loop=loop) for fut in fs]
+    try:
+        done, pending = await asyncio.wait(
+            fs, loop=loop, return_when=return_when)
+    except asyncio.CancelledError:
+        for fut in fs:
+            fut.cancel()
+        await asyncio.wait(fs, loop=loop)
+        raise
+    else:
+        if not pending:
+            return
+        for fut in pending:
+            fut.cancel()
+        await asyncio.wait(fs, loop=loop)
+
+
 class RetList(list):
     pass
 
@@ -48,6 +69,9 @@ async def concurrent(
     """
     assert exception_handling in (
         RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
+    if not coros_or_futures:
+        return
+
     loop = loop or asyncio.get_event_loop()
 
     if exception_handling == CANCEL_TASKS_AND_RAISE:
@@ -59,20 +83,10 @@ async def concurrent(
         asyncio.ensure_future(cf)
         for cf in coros_or_futures]
 
-    try:
-        done, pending = await asyncio.wait(
-            futs,
-            loop=loop,
-            return_when=return_when)
-    except asyncio.CancelledError:
-        for fut in futs:
-            fut.cancel()
-        raise
-
-    if pending:
-        assert exception_handling == CANCEL_TASKS_AND_RAISE
-        for fut in pending:
-            fut.cancel()
+    await _sane_wait(
+        futs,
+        loop=loop,
+        return_when=return_when)
 
     should_raise = exception_handling in (
         CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
@@ -210,11 +224,7 @@ class TaskGuard:
                 return
             for t in self._tasks:
                 t.cancel()
-            try:
-                await asyncio.wait(self._tasks, loop=self.loop)
-            except asyncio.CancelledError:
-                await asyncio.wait(self._tasks, loop=self.loop)
-                raise
+            await _sane_wait(self._tasks, loop=self.loop)
 
     def create_task(self, coro):
         if self._state == self._closed:
