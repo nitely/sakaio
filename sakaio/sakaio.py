@@ -3,7 +3,9 @@
 import asyncio
 
 
+# XXX rename and make it public
 async def _sane_wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
+    """Waits for all tasks to finish no matter what"""
     if not fs:
         return
     loop = loop or asyncio.get_event_loop()
@@ -22,9 +24,9 @@ async def _sane_wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
         for fut in pending:
             fut.cancel()
         try:
-            await asyncio.wait(fs, loop=loop)
+            await asyncio.wait(pending, loop=loop)
         except asyncio.CancelledError:
-            await asyncio.wait(fs, loop=loop)
+            await asyncio.wait(pending, loop=loop)
             raise
 
 
@@ -35,6 +37,9 @@ class RetList(list):
 RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE = range(3)
 
 
+# FIXME: should raise CancelledError if a child raised it
+#        same for the sequential version.
+#        Returning the exception as value is just too surprising
 async def concurrent(
         *coros_or_futures,
         loop=None,
@@ -68,7 +73,7 @@ async def concurrent(
     ``concurrent/sequential``, the outer coroutine \
     must be created as a task.
 
-    If this is created as a task and cancelled, then \
+    If this is created as a task and it's cancelled, then \
     all inner tasks will get cancelled as well.
     """
     assert exception_handling in (
@@ -84,7 +89,7 @@ async def concurrent(
         return_when = asyncio.ALL_COMPLETED
 
     futs = [
-        asyncio.ensure_future(cf)
+        asyncio.ensure_future(cf, loop=loop)
         for cf in coros_or_futures]
 
     await _sane_wait(
