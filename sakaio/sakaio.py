@@ -30,6 +30,47 @@ async def _sane_wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
             raise
 
 
+def _unravel_exception(ex):
+    if ex.__context__ is None:
+        return ex
+    return _unravel_exception(ex.__context__)
+
+
+def _see_chain(ex, seen):
+    if ex is None:
+        return
+    seen.add(ex)
+    _see_chain(ex.__context__, seen)
+    # It seems cause == context,
+    # but just to be safe,
+    # follow that branch as well
+    _see_chain(ex.__cause__, seen)
+
+
+def _was_seen(ex, seen):
+    if ex is None:
+        return False
+    if ex in seen:
+        return True
+    return _was_seen(ex.__context__, seen)
+
+
+# XXX should skip one level of the stack,
+#     so it won't show in traceback
+def _chain_exceptions(excepts):
+    """Chain a list of exceptions"""
+    seen = set()
+    ex = _unravel_exception(excepts[-1])
+    _see_chain(excepts[-1], seen)
+    for i in range(len(excepts) - 1, -1, -1):
+        if _was_seen(excepts[i], seen):
+            continue
+        _see_chain(excepts[i], seen)
+        ex.__context__ = excepts[i]
+        ex = _unravel_exception(excepts[i])
+    return excepts[-1]
+
+
 class RetList(list):
     pass
 
@@ -37,9 +78,6 @@ class RetList(list):
 RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE = range(3)
 
 
-# FIXME: should raise CancelledError if a child raised it
-#        same for the sequential version.
-#        Returning the exception as value is just too surprising
 async def concurrent(
         *coros_or_futures,
         loop=None,
@@ -60,10 +98,6 @@ async def concurrent(
 
     ``CANCEL_TASKS_AND_RAISE`` will raise the \
     first exception and cancel all remaining tasks.
-
-    In all cases if a task is cancelled, it won't cancel the \
-    remaining tasks and the resulting list will contain \
-    the exception as value
 
     It can be used in nested ``concurrent`` or \
     ``sequential`` calls and the resulting list will \
@@ -105,6 +139,8 @@ async def concurrent(
             try:
                 fut.result()
             except asyncio.CancelledError as err:
+                if should_raise:
+                    raise
                 results.append(err)
                 continue
 
@@ -141,12 +177,14 @@ async def sequential(*coros_or_futures, loop=None, return_exceptions=False):
 
         if cancel_all:
             coro_or_fut.cancel()
+            await _sane_wait([coro_or_fut], loop=loop)
             continue
 
         try:
             ret = await asyncio.shield(coro_or_fut, loop=loop)
         except asyncio.CancelledError as err:
             if coro_or_fut.cancelled():
+                # Don't cancel sibling tasks
                 if not return_exceptions:
                     error = err
                 results.append(err)
@@ -207,17 +245,27 @@ class TaskGuard:
         if not self._tasks:
             return
 
-        if exc_type is not None:
-            await self._clean_up()
-            return
+        exs = []
+
+        if exc_value is not None:
+            exs.append(exc_value)
+            for t in self._tasks:
+                t.cancel()
+            await _sane_wait(self._tasks, loop=self.loop)
 
         try:
-            await asyncio.wait(
+            await _sane_wait(
                 self._tasks,
                 loop=self.loop,
                 return_when=asyncio.FIRST_EXCEPTION)
         finally:
-            await self._clean_up()
+            for t in self._tasks:
+                if t.cancelled():
+                    continue
+                if t.exception():
+                    exs.append(t.exception())
+            if exs:
+                raise _chain_exceptions(exs)
 
     async def _clean_up(self):
         try:

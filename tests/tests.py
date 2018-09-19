@@ -3,8 +3,10 @@
 import asyncio
 
 import asynctest
+import unittest
 
 import sakaio
+from sakaio.sakaio import _chain_exceptions
 
 
 class WasteException(Exception):
@@ -50,6 +52,111 @@ class Waster:
             raise WasteException(str(name))
         self.completion_order.append(name)
         return name
+
+
+class ChainExceptionsTest(unittest.TestCase):
+
+    def test_chain(self):
+        try:
+            raise SomeOtherException('A')
+        except SomeOtherException as err:
+            ex1 = err
+        try:
+            raise SomeOtherException('B')
+        except SomeOtherException as err:
+            ex2 = err
+        err = _chain_exceptions([ex1, ex2])
+        self.assertEqual(err, ex2)
+        self.assertEqual(err.__context__, ex1)
+        self.assertIsNone(err.__context__.__context__)
+        with self.assertRaises(SomeOtherException):
+            raise err
+
+    def test_chain_nested(self):
+        try:
+            raise SomeOtherException('A')
+        except SomeOtherException as err:
+            ex1 = err
+            try:
+                raise SomeOtherException('B')
+            except SomeOtherException as err:
+                ex2 = err
+        try:
+            raise SomeOtherException('C')
+        except SomeOtherException as err:
+            ex3 = err
+        err = _chain_exceptions([ex2, ex3])
+        self.assertEqual(err, ex3)
+        self.assertEqual(err.__context__, ex2)
+        self.assertEqual(err.__context__.__context__, ex1)
+        self.assertIsNone(err.__context__.__context__.__context__)
+        with self.assertRaises(SomeOtherException):
+            raise err
+
+    def test_chain_from(self):
+        try:
+            raise SomeOtherException('A')
+        except SomeOtherException as err:
+            ex1 = err
+            try:
+                raise SomeOtherException('B') from ex1
+            except SomeOtherException as err:
+                ex2 = err
+        err = _chain_exceptions([ex2])
+        self.assertEqual(err, ex2)
+        self.assertEqual(err.__context__, ex1)
+        self.assertIsNone(err.__context__.__context__)
+        with self.assertRaises(SomeOtherException):
+            raise err
+
+    def test_chain_dups(self):
+        try:
+            raise SomeOtherException('A')
+        except SomeOtherException as err:
+            ex1 = err
+        try:
+            raise SomeOtherException('B')
+        except SomeOtherException as err:
+            ex2 = err
+        err = _chain_exceptions([ex1, ex2, ex1, ex2])
+        self.assertEqual(err, ex2)
+        self.assertEqual(err.__context__, ex1)
+        self.assertIsNone(err.__context__.__context__)
+        with self.assertRaises(SomeOtherException):
+            raise err
+
+    def test_chain_dups_nested(self):
+        try:
+            raise SomeOtherException('A')
+        except SomeOtherException as err:
+            ex1 = err
+            try:
+                raise SomeOtherException('B')
+            except SomeOtherException as err:
+                ex2 = err
+        err = _chain_exceptions([ex1, ex2, ex1, ex2])
+        self.assertEqual(err, ex2)
+        self.assertEqual(err.__context__, ex1)
+        self.assertIsNone(err.__context__.__context__)
+        with self.assertRaises(SomeOtherException):
+            raise err
+
+    def test_chain_dups_from(self):
+        try:
+            raise SomeOtherException('A')
+        except SomeOtherException as err:
+            ex1 = err
+            try:
+                raise SomeOtherException('B') from ex1
+            except SomeOtherException as err:
+                ex2 = err
+        err = _chain_exceptions([ex2, ex2])
+        self.assertEqual(err, ex2)
+        self.assertEqual(err.__cause__, ex1)
+        self.assertEqual(err.__context__, ex1)
+        self.assertIsNone(err.__context__.__context__)
+        with self.assertRaises(SomeOtherException):
+            raise err
 
 
 class ConcurrentSequentialTest(asynctest.TestCase):
@@ -147,12 +254,8 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             c_task,
             self.waster.waste('D', cycles=40),
             self.waster.waste('E', cycles=15)))
-        results = await task
-        self.assertEqual(results[:3], [
-            'X', 'A', 'B'])
-        self.assertIsInstance(results[3], asyncio.CancelledError)
-        self.assertEqual(results[4:], [
-            'D', 'E'])
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.gather(task)
         self.assertEqual(self.waster.completion_order, ['B', 'E', 'A', 'D', 'X'])
 
     async def test_concurrent_cancel_inner_ret(self):
