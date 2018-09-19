@@ -60,14 +60,13 @@ def _was_seen(ex, seen):
 def _chain_exceptions(excepts):
     """Chain a list of exceptions"""
     seen = set()
-    ex = _unravel_exception(excepts[-1])
-    _see_chain(excepts[-1], seen)
-    for i in range(len(excepts) - 1, -1, -1):
-        if _was_seen(excepts[i], seen):
+    _see_chain(excepts[0], seen)
+    for i in range(len(excepts) - 1):
+        if _was_seen(excepts[i + 1], seen):
             continue
-        _see_chain(excepts[i], seen)
+        _see_chain(excepts[i + 1], seen)
+        ex = _unravel_exception(excepts[i + 1])
         ex.__context__ = excepts[i]
-        ex = _unravel_exception(excepts[i])
     return excepts[-1]
 
 

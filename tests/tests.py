@@ -109,6 +109,17 @@ class ChainExceptionsTest(unittest.TestCase):
         with self.assertRaises(SomeOtherException):
             raise err
 
+    def test_chain_simple(self):
+        try:
+            raise SomeOtherException('A')
+        except SomeOtherException as err:
+            ex1 = err
+        err = _chain_exceptions([ex1, ex1])
+        self.assertEqual(err, ex1)
+        self.assertIsNone(err.__context__)
+        with self.assertRaises(SomeOtherException):
+            raise err
+
     def test_chain_dups(self):
         try:
             raise SomeOtherException('A')
