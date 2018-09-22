@@ -4,7 +4,7 @@ import asyncio
 
 
 # XXX rename and make it public
-async def _sane_wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
+async def _wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
     """Waits for all tasks to finish no matter what"""
     if not fs:
         return
@@ -80,7 +80,7 @@ RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE = range(3)
 
 
 async def concurrent(
-        *coros_or_futures,
+        *aws,
         loop=None,
         exception_handling=CANCEL_TASKS_AND_RAISE):
     """
@@ -116,7 +116,7 @@ async def concurrent(
     """
     assert exception_handling in (
         RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
-    if not coros_or_futures:
+    if not aws:
         return
 
     loop = loop or asyncio.get_event_loop()
@@ -128,9 +128,9 @@ async def concurrent(
 
     futs = [
         asyncio.ensure_future(cf, loop=loop)
-        for cf in coros_or_futures]
+        for cf in aws]
 
-    await _sane_wait(
+    await _wait(
         futs,
         loop=loop,
         return_when=return_when)
@@ -163,7 +163,7 @@ async def concurrent(
 
 
 # XXX exception_handling
-async def sequential(*coros_or_futures, loop=None, return_exceptions=False):
+async def sequential(*aws, loop=None, return_exceptions=False):
     """
     Similar to ``concurrent`` except \
     the given tasks are ran sequentially
@@ -177,24 +177,24 @@ async def sequential(*coros_or_futures, loop=None, return_exceptions=False):
     results = RetList()
     cancel_all = False
     error = None
-    for coro_or_fut in coros_or_futures:
-        coro_or_fut = asyncio.ensure_future(coro_or_fut, loop=loop)
+    for aw in aws:
+        aw = asyncio.ensure_future(aw, loop=loop)
 
         if cancel_all:
-            coro_or_fut.cancel()
-            await _sane_wait([coro_or_fut], loop=loop)
+            aw.cancel()
+            await _wait([aw], loop=loop)
             continue
 
         try:
-            ret = await asyncio.shield(coro_or_fut, loop=loop)
+            ret = await asyncio.shield(aw, loop=loop)
         except asyncio.CancelledError as err:
-            if coro_or_fut.cancelled():
+            if aw.cancelled():
                 # Don't cancel sibling tasks
                 if not return_exceptions:
                     error = err
                 results.append(err)
             else:
-                coro_or_fut.cancel()
+                aw.cancel()
                 cancel_all = True
                 error = err
             continue
@@ -256,10 +256,10 @@ class TaskGuard:
             exs.append(exc_value)
             for t in self._tasks:
                 t.cancel()
-            await _sane_wait(self._tasks, loop=self.loop)
+            await _wait(self._tasks, loop=self.loop)
 
         try:
-            await _sane_wait(
+            await _wait(
                 self._tasks,
                 loop=self.loop,
                 return_when=asyncio.FIRST_EXCEPTION)
@@ -286,7 +286,7 @@ class TaskGuard:
                 return
             for t in self._tasks:
                 t.cancel()
-            await _sane_wait(self._tasks, loop=self.loop)
+            await _wait(self._tasks, loop=self.loop)
 
     def create_task(self, coro):
         if self._state == self._closed:

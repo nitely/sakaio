@@ -20,9 +20,9 @@ Python +3.5
 
 ## Concurrent
 
-Concurrent is the pythonic and sane alternative
-to asyncio's gather/wait. It'll wait for
-all tasks to finish and has proper
+Concurrent is the pythonic alternative
+to asyncio's gather/wait. It'll always
+wait for all tasks to finish and has proper
 exception handling.
 
 ```python
