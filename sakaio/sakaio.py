@@ -52,13 +52,15 @@ def _was_seen(ex, seen):
         return False
     if ex in seen:
         return True
-    return _was_seen(ex.__context__, seen)
+    return (
+        _was_seen(ex.__context__, seen) or
+        _was_seen(ex.__cause__, seen))
 
 
-# XXX should skip one level of the stack,
-#     so it won't show in traceback
 def _chain_exceptions(excepts):
     """Chain a list of exceptions"""
+    assert excepts
+    # While chaining, we must not create cycles
     seen = set()
     _see_chain(excepts[0], seen)
     for i in range(len(excepts) - 1):
@@ -208,9 +210,7 @@ async def sequential(*coros_or_futures, loop=None, return_exceptions=False):
         raise error
     return results
 
-# XXX we should always wait for all tasks to finish,
-#     even if they ignore cancellation, and chain
-#     all exceptions afterwards.
+
 class TaskGuard:
     """
     Create tasks and wait for them to finish.
