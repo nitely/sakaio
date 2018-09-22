@@ -18,9 +18,53 @@ pip install sakaio
 
 Python +3.5
 
+## Concurrent
+
+Concurrent is the pythonic and sane alternative
+to asyncio's gather/wait. It'll wait for
+all tasks to finish and has proper
+exception handling.
+
+```python
+import asyncio
+import sakaio
+
+
+async def factorial(name, number):
+    f = 1
+    for i in range(2, number + 1):
+        print(f"Task {name}: Compute factorial({i})...")
+        await asyncio.sleep(1)
+        f *= i
+    print(f"Task {name}: factorial({number}) = {f}")
+
+async def main():
+    # Schedule three calls *concurrently*:
+    await sakaio.concurrent(
+        factorial("A", 2),
+        factorial("B", 3),
+        factorial("C", 4))
+
+asyncio.run(main())
+
+# Expected output:
+#
+#     Task A: Compute factorial(2)...
+#     Task B: Compute factorial(2)...
+#     Task C: Compute factorial(2)...
+#     Task A: factorial(2) = 2
+#     Task B: Compute factorial(3)...
+#     Task C: Compute factorial(3)...
+#     Task B: factorial(3) = 6
+#     Task C: Compute factorial(4)...
+#     Task C: factorial(4) = 24
+```
+
 ## Concurrent and Sequential pair
 
-Run arbitrary nesting depth tasks concurrently or sequentially.
+Concurrent + sequential provides a simple
+way to describe tasks that have a complex
+execution order
 
 ```python
 import asyncio
@@ -32,17 +76,18 @@ async def sleepy(txt, sleep=0):
     print(txt)
     return txt
 
-loop = asyncio.get_event_loop()
-tasks = sakaio.concurrent(
-    sleepy("B", sleep=3),
-    sleepy("A", sleep=2),
-    sakaio.sequential(
-        sleepy("C", sleep=4),
-        sakaio.concurrent(
-            sleepy("E", sleep=5), sleepy("D", sleep=2)),
-        sleepy("F", sleep=1)))
-loop.run_until_complete(tasks)
-loop.close()
+async def main():
+    await sakaio.concurrent(
+        sleepy("B", sleep=3),
+        sleepy("A", sleep=2),
+        sakaio.sequential(
+            sleepy("C", sleep=4),
+            sakaio.concurrent(
+                sleepy("E", sleep=5),
+                sleepy("D", sleep=2)),
+            sleepy("F", sleep=1)))
+
+asyncio.run(main())
 
 # This prints:
 # A

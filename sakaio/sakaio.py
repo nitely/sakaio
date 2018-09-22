@@ -98,11 +98,12 @@ async def concurrent(
     exception afterwards.
 
     ``CANCEL_TASKS_AND_RAISE`` will raise the \
-    first exception and cancel all remaining tasks.
+    first exception, cancel all remaining tasks \
+    and wait for them to finish
 
     It can be used in nested ``concurrent`` or \
     ``sequential`` calls and the resulting list will \
-    get flattened
+    get flattened.
 
     In order to cancel a nested sequence of \
     ``concurrent/sequential``, the outer coroutine \
@@ -110,6 +111,8 @@ async def concurrent(
 
     If this is created as a task and it's cancelled, then \
     all inner tasks will get cancelled as well.
+
+    If more than one task raise an exception, they get chained.
     """
     assert exception_handling in (
         RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
@@ -159,6 +162,7 @@ async def concurrent(
     return results
 
 
+# XXX exception_handling
 async def sequential(*coros_or_futures, loop=None, return_exceptions=False):
     """
     Similar to ``concurrent`` except \
@@ -217,10 +221,12 @@ class TaskGuard:
 
     If a task raises an exception, then all remaining tasks
     get cancelled and the first exception is raised. Same thing if
-    an exception gets raised within the ``with`` block
+    an exception gets raised within the ``with`` block.
+
+    If more than one task raise an exception, they get chained.
 
     If a task is cancelled and decides to ignore cancellation, the
-    guard will still wait for it to finish
+    guard will still wait for it to finish.
     """
 
     _started, _running, _closed = range(3)
