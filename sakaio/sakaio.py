@@ -3,20 +3,37 @@
 import asyncio
 
 
-# XXX rename and make it public
-async def _wait(fs, *, loop=None, return_when=asyncio.ALL_COMPLETED):
-    """Waits for all tasks to finish no matter what"""
-    if not fs:
+FIRST_COMPLETED = asyncio.FIRST_COMPLETED
+FIRST_EXCEPTION = asyncio.FIRST_EXCEPTION
+ALL_COMPLETED = asyncio.ALL_COMPLETED
+
+
+async def wait(aws, *, loop=None, timeout=None, return_when=ALL_COMPLETED):
+    """
+    Waits for all tasks to finish no matter what.
+
+    It return `None`. Futures or tasks must be passed \
+    to retrieve the results later
+
+    It'll cancel pending tasks and wait for them to finish \
+    before returning
+
+    Parameter `return_when` accept `sakaio.FIRST_COMPLETED`, \
+    `sakaio.FIRST_EXCEPTION` and `sakaio.ALL_COMPLETED`
+    """
+    assert return_when in (
+        FIRST_COMPLETED, FIRST_EXCEPTION, ALL_COMPLETED)
+    if not aws:
         return
     loop = loop or asyncio.get_event_loop()
-    fs = [asyncio.ensure_future(fut, loop=loop) for fut in fs]
+    futs = [asyncio.ensure_future(aw, loop=loop) for aw in aws]
     try:
         done, pending = await asyncio.wait(
-            fs, loop=loop, return_when=return_when)
+            futs, loop=loop, timeout=timeout, return_when=return_when)
     except asyncio.CancelledError:
-        for fut in fs:
+        for fut in futs:
             fut.cancel()
-        await asyncio.wait(fs, loop=loop)
+        await asyncio.wait(futs, loop=loop)
         raise
     else:
         if not pending:
@@ -122,15 +139,13 @@ async def concurrent(
     loop = loop or asyncio.get_event_loop()
 
     if exception_handling == CANCEL_TASKS_AND_RAISE:
-        return_when = asyncio.FIRST_EXCEPTION
+        return_when = FIRST_EXCEPTION
     else:
-        return_when = asyncio.ALL_COMPLETED
+        return_when = ALL_COMPLETED
 
-    futs = [
-        asyncio.ensure_future(cf, loop=loop)
-        for cf in aws]
+    futs = [asyncio.ensure_future(aw, loop=loop) for aw in aws]
 
-    await _wait(
+    await wait(
         futs,
         loop=loop,
         return_when=return_when)
@@ -182,7 +197,7 @@ async def sequential(*aws, loop=None, return_exceptions=False):
 
         if cancel_all:
             aw.cancel()
-            await _wait([aw], loop=loop)
+            await wait([aw], loop=loop)
             continue
 
         try:
@@ -256,10 +271,10 @@ class TaskGuard:
             exs.append(exc_value)
             for t in self._tasks:
                 t.cancel()
-            await _wait(self._tasks, loop=self.loop)
+            await wait(self._tasks, loop=self.loop)
 
         try:
-            await _wait(
+            await wait(
                 self._tasks,
                 loop=self.loop,
                 return_when=asyncio.FIRST_EXCEPTION)
@@ -286,7 +301,7 @@ class TaskGuard:
                 return
             for t in self._tasks:
                 t.cancel()
-            await _wait(self._tasks, loop=self.loop)
+            await wait(self._tasks, loop=self.loop)
 
     def create_task(self, coro):
         if self._state == self._closed:
