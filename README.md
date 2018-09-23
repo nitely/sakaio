@@ -114,15 +114,11 @@ async def sleepy(txt, sleep=0):
 
 
 async def main():
-    async with sakaio.TaskGuard(loop) as pool:
+    async with sakaio.TaskGuard() as pool:
         pool.create_task(sleepy("B", sleep=5))
         pool.create_task(sleepy("A", sleep=2))
 
-loop = asyncio.get_event_loop()
-try:
-    loop.run_until_complete(main())
-finally:
-    loop.close()
+asyncio.run(main())
 
 # This prints
 # A
@@ -146,18 +142,41 @@ async def sleepy(txt, sleep=0, raise_err=False):
 
 
 async def main():
-    async with sakaio.TaskGuard(loop) as pool:
+    async with sakaio.TaskGuard() as pool:
         pool.create_task(sleepy("B", sleep=5))
         pool.create_task(sleepy("A", sleep=2, raise_err=True))
 
-loop = asyncio.get_event_loop()
-try:
-    loop.run_until_complete(main())
-finally:
-    loop.close()
+asyncio.run(main())
 
 
 # This prints a traceback (A raises and B gets cancelled)
+```
+
+## Wait
+
+Similar to `asyncio.wait` except it cancels
+all pending tasks and waits for them to finish
+
+```python
+import asyncio
+import sakaio
+
+
+async def sleepy(txt, sleep=0):
+    await asyncio.sleep(sleep)
+    print(txt)
+
+
+async def main():
+    await sakaio.wait([
+        sleepy("B", sleep=5),
+        sleepy("A", sleep=5)])
+
+asyncio.run(main())
+
+# This prints
+# A
+# B
 ```
 
 ## LICENSE
