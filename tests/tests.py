@@ -413,6 +413,7 @@ class ConcurrentSequentialTest(asynctest.TestCase):
 
     async def test_gather_behaviour(self):
         task_c = self.loop.create_task(self.waster.waste('C', cycles=30))
+        call_later(cycles=10, callback=task_c.cancel)
 
         task = asyncio.gather(
             self.waster.waste('A', cycles=20),
@@ -421,7 +422,6 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             self.waster.waste('D', cycles=40),
             self.waster.waste('E', cycles=15))
         await waste_cycles(5)
-        task_c.cancel()
         try:
             result = await task
         except asyncio.CancelledError:

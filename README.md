@@ -38,6 +38,7 @@ async def factorial(name, number):
         f *= i
     print(f"Task {name}: factorial({number}) = {f}")
 
+
 async def main():
     # Schedule three calls *concurrently*:
     await sakaio.concurrent(
@@ -76,6 +77,7 @@ async def sleepy(txt, sleep=0):
     print(txt)
     return txt
 
+
 async def main():
     await sakaio.concurrent(
         sleepy("B", sleep=3),
@@ -90,6 +92,7 @@ async def main():
 asyncio.run(main())
 
 # This prints:
+#
 # A
 # B
 # C
@@ -121,6 +124,7 @@ async def main():
 asyncio.run(main())
 
 # This prints
+#
 # A
 # B
 ```
@@ -148,7 +152,6 @@ async def main():
 
 asyncio.run(main())
 
-
 # This prints a traceback (A raises and B gets cancelled)
 ```
 
@@ -175,6 +178,7 @@ async def main():
 asyncio.run(main())
 
 # This prints
+#
 # A
 # B
 ```
