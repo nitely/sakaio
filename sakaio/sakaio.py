@@ -12,19 +12,18 @@ async def wait(aws, *, loop=None, timeout=None, return_when=ALL_COMPLETED):
     """
     Waits for all tasks to finish no matter what.
 
-    It return `None`. Futures or tasks must be passed \
-    to retrieve the results later
+    Return a list of futures in the awaitables order.
 
     It'll cancel pending tasks and wait for them to finish \
     before returning
 
-    Parameter `return_when` accept `sakaio.FIRST_COMPLETED`, \
-    `sakaio.FIRST_EXCEPTION` and `sakaio.ALL_COMPLETED`
+    Parameter ``return_when`` accept ``sakaio.FIRST_COMPLETED``, \
+    ``sakaio.FIRST_EXCEPTION`` and ``sakaio.ALL_COMPLETED``
     """
     assert return_when in (
         FIRST_COMPLETED, FIRST_EXCEPTION, ALL_COMPLETED)
     if not aws:
-        return
+        return []
     loop = loop or asyncio.get_event_loop()
     futs = [asyncio.ensure_future(aw, loop=loop) for aw in aws]
     try:
@@ -35,16 +34,18 @@ async def wait(aws, *, loop=None, timeout=None, return_when=ALL_COMPLETED):
             fut.cancel()
         await asyncio.wait(futs, loop=loop)
         raise
-    else:
-        if not pending:
-            return
-        for fut in pending:
-            fut.cancel()
-        try:
-            await asyncio.wait(pending, loop=loop)
-        except asyncio.CancelledError:
-            await asyncio.wait(pending, loop=loop)
-            raise
+
+    if not pending:
+        return futs
+    for fut in pending:
+        fut.cancel()
+    try:
+        await asyncio.wait(pending, loop=loop)
+    except asyncio.CancelledError:
+        await asyncio.wait(pending, loop=loop)
+        raise
+
+    return futs
 
 
 def _unravel_exception(ex):
@@ -101,14 +102,14 @@ async def concurrent(
         loop=None,
         exception_handling=CANCEL_TASKS_AND_RAISE):
     """
-    A saner alternative to ``asyncio.gather``
+    A pythonic alternative to ``asyncio.gather``.
 
     The ``exception_handling`` has three options \
     to control how exceptions are handled:
 
     ``RETURN_EXCEPTIONS`` will wait for \
     all tasks to finish and return everything as \
-    values including exceptions
+    values including exceptions.
 
     ``WAIT_TASKS_AND_RAISE`` will wait for \
     all tasks to finish and raise the first \
@@ -116,7 +117,7 @@ async def concurrent(
 
     ``CANCEL_TASKS_AND_RAISE`` will raise the \
     first exception, cancel all remaining tasks \
-    and wait for them to finish
+    and wait for them to finish.
 
     It can be used in nested ``concurrent`` or \
     ``sequential`` calls and the resulting list will \
@@ -143,37 +144,37 @@ async def concurrent(
     else:
         return_when = ALL_COMPLETED
 
-    futs = [asyncio.ensure_future(aw, loop=loop) for aw in aws]
-
-    await wait(
-        futs,
+    futs = await wait(
+        aws,
         loop=loop,
         return_when=return_when)
 
-    should_raise = exception_handling in (
-        CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
+    exs_cancel = []
+    exs = []
     results = RetList()
     for fut in futs:
         if fut.cancelled():
             try:
                 fut.result()
             except asyncio.CancelledError as err:
-                if should_raise:
-                    raise
+                exs_cancel.append(err)
                 results.append(err)
                 continue
 
-        if fut.exception() is not None:
-            if should_raise:
-                raise fut.exception()
-            else:
-                results.append(fut.exception())
+        if fut.exception():
+            exs.append(fut.exception())
+            results.append(fut.exception())
             continue
 
         if isinstance(fut.result(), RetList):
             results.extend(fut.result())
         else:
             results.append(fut.result())
+    # XXX we should preserve the raise order
+    exs = [*exs_cancel, *exs]
+    if exs and exception_handling in (
+            CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE):
+        raise _chain_exceptions(exs)
     return results
 
 
@@ -181,35 +182,35 @@ async def concurrent(
 async def sequential(*aws, loop=None, return_exceptions=False):
     """
     Similar to ``concurrent`` except \
-    the given tasks are ran sequentially
+    the given tasks are ran sequentially.
 
     If ``return_exceptions`` is ``False`` (the default), \
     the first exception will be raised and no coro \
     will run further. Otherwise, all coros will run and \
-    exceptions will be appended to the returned list
+    exceptions will be appended to the returned list.
     """
     loop = loop or asyncio.get_event_loop()
     results = RetList()
     cancel_all = False
     error = None
     for aw in aws:
-        aw = asyncio.ensure_future(aw, loop=loop)
+        fut = asyncio.ensure_future(aw, loop=loop)
 
         if cancel_all:
-            aw.cancel()
-            await wait([aw], loop=loop)
+            fut.cancel()
+            await wait([fut], loop=loop)
             continue
 
         try:
-            ret = await asyncio.shield(aw, loop=loop)
+            ret = await asyncio.shield(fut, loop=loop)
         except asyncio.CancelledError as err:
-            if aw.cancelled():
+            if fut.cancelled():
                 # Don't cancel sibling tasks
                 if not return_exceptions:
                     error = err
                 results.append(err)
             else:
-                aw.cancel()
+                fut.cancel()
                 cancel_all = True
                 error = err
             continue
@@ -234,14 +235,14 @@ class TaskGuard:
     """
     Create tasks and wait for them to finish.
 
-    If a task raises an exception, then all remaining tasks
-    get cancelled and the first exception is raised. Same thing if
-    an exception gets raised within the ``with`` block.
+    If a task raises an exception, then all remaining tasks \
+    get cancelled and the first exception is raised. Same \
+    thing if an exception gets raised within the ``with`` block.
 
     If more than one task raise an exception, they get chained.
 
-    If a task is cancelled and decides to ignore cancellation, the
-    guard will still wait for it to finish.
+    If a task is cancelled and decides to ignore cancellation, \
+    the guard will still wait for it to finish.
     """
 
     _started, _running, _closed = range(3)
@@ -277,7 +278,7 @@ class TaskGuard:
             await wait(
                 self._tasks,
                 loop=self.loop,
-                return_when=asyncio.FIRST_EXCEPTION)
+                return_when=FIRST_EXCEPTION)
         finally:
             for t in self._tasks:
                 if t.cancelled():
@@ -286,22 +287,6 @@ class TaskGuard:
                     exs.append(t.exception())
             if exs:
                 raise _chain_exceptions(exs)
-
-    async def _clean_up(self):
-        try:
-            for t in self._tasks:
-                if not t.done():
-                    continue
-                if t.cancelled():
-                    continue
-                if t.exception():
-                    raise t.exception()
-        finally:
-            if not self._tasks:
-                return
-            for t in self._tasks:
-                t.cancel()
-            await wait(self._tasks, loop=self.loop)
 
     def create_task(self, coro):
         if self._state == self._closed:
