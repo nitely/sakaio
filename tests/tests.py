@@ -226,14 +226,20 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             'B', 'A', 'C', 'E', 'D', 'F'])
 
     async def test_concurrent_err(self):
-        with self.assertRaises(WasteException):
+        with self.assertRaises(WasteException) as cm:
             await sakaio.concurrent(
+                self.waster.waste('Z', cycles=300, raise_err=True, ignore_cancel=True),
                 self.waster.waste('X', cycles=200, ignore_cancel=True),
                 self.waster.waste('A', cycles=20),
                 self.waster.waste('B', cycles=10),
                 self.waster.waste('C', cycles=30, raise_err=True),
                 self.waster.waste('D', cycles=40),  # won't run
                 self.waster.waste('E', cycles=15))
+        self.assertIsInstance(cm.exception, WasteException)
+        self.assertEqual(str(cm.exception), "Z")
+        self.assertIsInstance(cm.exception.__context__, WasteException)
+        self.assertEqual(str(cm.exception.__context__), "C")
+        self.assertIsNone(cm.exception.__context__.__context__)
         self.assertEqual(self.waster.completion_order, [
             'B', 'E', 'A', 'X'])
 
@@ -265,8 +271,10 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             c_task,
             self.waster.waste('D', cycles=40),
             self.waster.waste('E', cycles=15)))
+        # Same behaviour as asyncio.gather
         with self.assertRaises(asyncio.CancelledError):
-            await asyncio.gather(task)
+            await task
+        self.assertTrue(task.cancelled())
         self.assertEqual(self.waster.completion_order, ['B', 'E', 'A', 'D', 'X'])
 
     async def test_concurrent_cancel_inner_ret(self):
@@ -298,7 +306,9 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             self.waster.waste('D', cycles=40),
             self.waster.waste('E', cycles=15)))
         call_later(cycles=5, callback=task.cancel)
-        await asyncio.wait([task], loop=self.loop)
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(task.cancelled())
         self.assertEqual(self.waster.completion_order, ['X'])
 
     async def test_concurrent_cancel_outer_ret(self):
@@ -311,7 +321,9 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             self.waster.waste('E', cycles=15),
             exception_handling=sakaio.RETURN_EXCEPTIONS))
         call_later(cycles=5, callback=task.cancel)
-        await asyncio.wait([task], loop=self.loop)
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(task.cancelled())
         self.assertEqual(self.waster.completion_order, ['X'])
 
     async def test_sequential_err(self):
@@ -355,10 +367,9 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             self.waster.waste('E', cycles=15)))
         await waste_cycles(12)
         c_task.cancel()
-        await waste_cycles(200)
         with self.assertRaises(asyncio.CancelledError):
             await task
-
+        self.assertTrue(task.cancelled())
         self.assertEqual(self.waster.completion_order, ['A', 'B', 'D', 'E'])
 
     async def test_sequential_cancel_inner_ret(self):
@@ -395,6 +406,8 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             self.waster.waste('E', cycles=15)))
         await waste_cycles(5)
         task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
         await waste_cycles(200)
         self.assertEqual(self.waster.completion_order, [])
 
@@ -408,6 +421,8 @@ class ConcurrentSequentialTest(asynctest.TestCase):
             return_exceptions=True))
         await waste_cycles(5)
         task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
         await waste_cycles(200)
         self.assertEqual(self.waster.completion_order, [])
 
@@ -415,19 +430,19 @@ class ConcurrentSequentialTest(asynctest.TestCase):
         task_c = self.loop.create_task(self.waster.waste('C', cycles=30))
         call_later(cycles=10, callback=task_c.cancel)
 
-        task = asyncio.gather(
-            self.waster.waste('A', cycles=20),
-            self.waster.waste('B', cycles=10),
-            task_c,
-            self.waster.waste('D', cycles=40),
-            self.waster.waste('E', cycles=15))
-        await waste_cycles(5)
-        try:
-            result = await task
-        except asyncio.CancelledError:
-            result = None
+        async def gather():
+            await asyncio.gather(
+                self.waster.waste('A', cycles=20),
+                self.waster.waste('B', cycles=10),
+                task_c,
+                self.waster.waste('D', cycles=40),
+                self.waster.waste('E', cycles=15))
+
+        task = self.loop.create_task(gather())
+        with self.assertRaises(asyncio.CancelledError):
+            await task
         await waste_cycles(200)
-        self.assertIsNone(result)
+        self.assertTrue(task.cancelled())
         self.assertEqual(self.waster.completion_order, ['B', 'E', 'A', 'D'])
 
     async def test_gather_behaviour_ret(self):
@@ -538,6 +553,7 @@ class TaskGuardTest(asynctest.TestCase):
         task = self.loop.create_task(task_guard())
         call_later(cycles=15, callback=task.cancel)
         await asyncio.wait([task], loop=self.loop)
+        self.assertTrue(task.cancelled())
         self.assertEqual(self.waster.completion_order, ['A', 'D'])
 
 

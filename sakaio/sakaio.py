@@ -8,11 +8,12 @@ FIRST_EXCEPTION = asyncio.FIRST_EXCEPTION
 ALL_COMPLETED = asyncio.ALL_COMPLETED
 
 
+# XXX remove
 async def wait(aws, *, loop=None, timeout=None, return_when=ALL_COMPLETED):
     """
     Waits for all tasks to finish no matter what.
 
-    Return a list of futures in the awaitables order.
+    Return a list of futures ordered by ``aws``.
 
     It'll cancel pending tasks and wait for them to finish \
     before returning
@@ -25,27 +26,61 @@ async def wait(aws, *, loop=None, timeout=None, return_when=ALL_COMPLETED):
     if not aws:
         return []
     loop = loop or asyncio.get_event_loop()
-    futs = [asyncio.ensure_future(aw, loop=loop) for aw in aws]
+    fs = [asyncio.ensure_future(aw, loop=loop) for aw in aws]
     try:
         done, pending = await asyncio.wait(
-            futs, loop=loop, timeout=timeout, return_when=return_when)
+            fs, loop=loop, timeout=timeout, return_when=return_when)
     except asyncio.CancelledError:
-        for fut in futs:
-            fut.cancel()
-        await asyncio.wait(futs, loop=loop)
+        for f in fs:
+            f.cancel()
+        await asyncio.wait(fs, loop=loop)
         raise
 
     if not pending:
-        return futs
-    for fut in pending:
-        fut.cancel()
+        return fs
+    for f in pending:
+        f.cancel()
     try:
         await asyncio.wait(pending, loop=loop)
     except asyncio.CancelledError:
         await asyncio.wait(pending, loop=loop)
         raise
 
-    return futs
+    return fs
+
+
+async def _wait_completion(fs, *, loop, cancel_on_first_ex=False):
+    assert fs
+    fs = set(fs)
+    waiter = loop.create_future()
+    counter = len(fs)
+    result = []
+
+    def _on_completion(f):
+        nonlocal counter, result, fs
+        assert counter > 0
+        result.append(f)
+        counter -= 1
+        if counter <= 0:
+            if not waiter.done():
+                waiter.set_result(result)
+        if (cancel_on_first_ex and
+                not f.cancelled() and
+                f.exception()):
+            for ff in fs:
+                ff.cancel()
+
+    for f in fs:
+        # XXX test if already done
+        f.add_done_callback(_on_completion)
+
+    try:
+        return await waiter
+    except asyncio.CancelledError:
+        for f in fs:
+            f.cancel()
+        await asyncio.wait(fs, loop=loop)
+        raise
 
 
 def _unravel_exception(ex):
@@ -102,7 +137,7 @@ async def concurrent(
         loop=None,
         exception_handling=CANCEL_TASKS_AND_RAISE):
     """
-    A pythonic alternative to ``asyncio.gather``.
+    Run awaitables concurrently and wait for them to finish.
 
     The ``exception_handling`` has three options \
     to control how exceptions are handled:
@@ -134,47 +169,47 @@ async def concurrent(
     """
     assert exception_handling in (
         RETURN_EXCEPTIONS, CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE)
+
+    results = RetList()
     if not aws:
-        return
+        return results
 
     loop = loop or asyncio.get_event_loop()
+    fs = [
+        asyncio.ensure_future(aw, loop=loop)
+        for aw in aws]
+    ffs = await _wait_completion(
+        fs, loop=loop, cancel_on_first_ex=exception_handling == CANCEL_TASKS_AND_RAISE)
 
-    if exception_handling == CANCEL_TASKS_AND_RAISE:
-        return_when = FIRST_EXCEPTION
-    else:
-        return_when = ALL_COMPLETED
-
-    futs = await wait(
-        aws,
-        loop=loop,
-        return_when=return_when)
-
-    exs_cancel = []
-    exs = []
-    results = RetList()
-    for fut in futs:
-        if fut.cancelled():
-            try:
-                fut.result()
-            except asyncio.CancelledError as err:
-                exs_cancel.append(err)
-                results.append(err)
+    # Raise chained exception preserving the raised order
+    if exception_handling in (
+            CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE):
+        exs = []
+        should_cancel = False
+        for f in ffs:
+            if f.cancelled():
+                should_cancel = True
                 continue
+            if f.exception():
+                exs.append(f.exception())
+        if exs:
+            raise _chain_exceptions(exs)
+        # Cancels have no traceback anyway
+        if should_cancel:
+            raise asyncio.CancelledError()
 
-        if fut.exception():
-            exs.append(fut.exception())
-            results.append(fut.exception())
+    for f in fs:
+        if f.cancelled():
+            results.append(asyncio.CancelledError())
+            continue
+        if f.exception():
+            results.append(f.exception())
             continue
 
-        if isinstance(fut.result(), RetList):
-            results.extend(fut.result())
+        if isinstance(f.result(), RetList):
+            results.extend(f.result())
         else:
-            results.append(fut.result())
-    # XXX we should preserve the raise order
-    exs = [*exs_cancel, *exs]
-    if exs and exception_handling in (
-            CANCEL_TASKS_AND_RAISE, WAIT_TASKS_AND_RAISE):
-        raise _chain_exceptions(exs)
+            results.append(f.result())
     return results
 
 
