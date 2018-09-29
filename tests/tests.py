@@ -520,7 +520,7 @@ class TaskGuardTest(asynctest.TestCase):
 
     async def test_guard_err_mixed_err(self):
         loop = asyncio.get_event_loop()
-        with self.assertRaises(WasteException) as cm:
+        with self.assertRaises(SomeOtherException) as cm:
             async with sakaio.TaskGuard(loop) as guard:
                 guard.create_task(self.waster.waste('D', cycles=200, ignore_cancel=True))
                 guard.create_task(self.waster.waste('C', cycles=30))  # gets cancelled
@@ -528,8 +528,8 @@ class TaskGuardTest(asynctest.TestCase):
                 t = guard.create_task(self.waster.waste('B', cycles=20, raise_err=True))
                 await asyncio.wait([t], loop=loop)
                 raise SomeOtherException()  # gets raised as well
-
-        self.assertIsInstance(cm.exception.__context__, SomeOtherException)
+        await waste_cycles(10)
+        self.assertIsInstance(cm.exception.__context__, WasteException)
         self.assertEqual(self.waster.completion_order, ['A', 'D'])
 
     async def test_guard_cancel_some_task(self):

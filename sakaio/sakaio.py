@@ -55,18 +55,21 @@ async def _wait_completion(fs, *, loop, cancel_on_first_ex=False):
     waiter = loop.create_future()
     counter = len(fs)
     result = []
+    exiting = False
 
     def _on_completion(f):
-        nonlocal counter, result, fs
+        nonlocal counter, result, exiting
         assert counter > 0
         result.append(f)
         counter -= 1
         if counter <= 0:
             if not waiter.done():
                 waiter.set_result(result)
-        if (cancel_on_first_ex and
+        if (not exiting and
+                cancel_on_first_ex and
                 not f.cancelled() and
                 f.exception()):
+            exiting = True
             for ff in fs:
                 ff.cancel()
 
@@ -175,11 +178,10 @@ async def concurrent(
         return results
 
     loop = loop or asyncio.get_event_loop()
-    fs = [
-        asyncio.ensure_future(aw, loop=loop)
-        for aw in aws]
+    fs = [asyncio.ensure_future(aw, loop=loop) for aw in aws]
+    cancel_on_first_ex = exception_handling == CANCEL_TASKS_AND_RAISE
     ffs = await _wait_completion(
-        fs, loop=loop, cancel_on_first_ex=exception_handling == CANCEL_TASKS_AND_RAISE)
+        fs, loop=loop, cancel_on_first_ex=cancel_on_first_ex)
 
     # Raise chained exception preserving the raised order
     if exception_handling in (
@@ -205,7 +207,6 @@ async def concurrent(
         if f.exception():
             results.append(f.exception())
             continue
-
         if isinstance(f.result(), RetList):
             results.extend(f.result())
         else:
@@ -301,27 +302,24 @@ class TaskGuard:
         if not self._tasks:
             return
 
-        exs = []
-
+        cancel_on_first_ex = True
         if exc_value is not None:
-            exs.append(exc_value)
             for t in self._tasks:
                 t.cancel()
-            await wait(self._tasks, loop=self.loop)
+            cancel_on_first_ex = False
 
-        try:
-            await wait(
-                self._tasks,
-                loop=self.loop,
-                return_when=FIRST_EXCEPTION)
-        finally:
-            for t in self._tasks:
-                if t.cancelled():
-                    continue
-                if t.exception():
-                    exs.append(t.exception())
-            if exs:
-                raise _chain_exceptions(exs)
+        ts = await _wait_completion(
+            self._tasks, loop=self.loop, cancel_on_first_ex=cancel_on_first_ex)
+        exs = []
+        for t in ts:
+            if t.cancelled():
+                continue
+            if t.exception():
+                exs.append(t.exception())
+        if exc_value is not None:
+            exs.append(exc_value)
+        if exs:
+            raise _chain_exceptions(exs)
 
     def create_task(self, coro):
         if self._state == self._closed:
