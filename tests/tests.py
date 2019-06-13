@@ -565,8 +565,9 @@ class CancelAllTasksTest(asynctest.TestCase):
         self.waster = Waster()
 
     async def test_cancel_all_tasks(self):
-        t1 = asyncio.create_task(self.waster.waste('A', cycles=100))
-        t2 = asyncio.create_task(self.waster.waste('B', cycles=200))
+        loop = asyncio.get_event_loop()
+        t1 = loop.create_task(self.waster.waste('A', cycles=100))
+        t2 = loop.create_task(self.waster.waste('B', cycles=200))
         assert t1 and t2  # shut up lint
         await waste_cycles(10)
         await sakaio.cancel_all_tasks(raise_timeout_error=True)
@@ -585,7 +586,8 @@ class CancelAllTasksTest(asynctest.TestCase):
                 if terminate:
                     return
 
-        t1 = asyncio.create_task(never_ending())
+        loop = asyncio.get_event_loop()
+        t1 = loop.create_task(never_ending())
         await waste_cycles(10)
         with self.assertRaises(asyncio.TimeoutError), \
              self.assertLogs('sakaio', logging.WARNING):
