@@ -6,6 +6,14 @@ import logging
 logger = logging.getLogger('sakaio')
 
 
+def _all_tasks(loop=None):
+    """For compat with py3.5 and py3.6"""
+    try:
+        return asyncio.all_tasks(loop=loop)
+    except AttributeError:
+        return {t for t in asyncio.Task.all_tasks(loop=loop) if not t.done()}
+
+
 async def cancel_all_tasks(*, timeout=None, raise_timeout_error=False):
     """
     Cancel all tasks and wait for cancellation.\
@@ -33,14 +41,14 @@ async def cancel_all_tasks(*, timeout=None, raise_timeout_error=False):
 
     """
     def _warn_pending():
-        running = asyncio.all_tasks(loop=loop)
+        running = _all_tasks(loop=loop)
         if running:
             logger.warning(
                 'There are %s pending tasks, first 10: %r',
                 len(running), list(running)[:10])
 
     loop = asyncio.get_event_loop()
-    running = asyncio.all_tasks(loop=loop)
+    running = _all_tasks(loop=loop)
     for t in running:
         t.cancel()
     for f in asyncio.as_completed(running, timeout=timeout, loop=loop):
