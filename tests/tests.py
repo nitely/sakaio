@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import logging
 
 import asynctest
 import unittest
@@ -36,6 +37,7 @@ class Waster:
     """Waste event loop cycles"""
     def __init__(self):
         self.completion_order = []
+        self.cancelled = []
 
     async def waste(self, name, *, cycles, raise_err=False, ignore_cancel=False):
         """
@@ -46,6 +48,7 @@ class Waster:
             await waste_cycles(cycles)
         except asyncio.CancelledError:
             if not ignore_cancel:
+                self.cancelled.append(name)
                 raise
             await waste_cycles(cycles)
         if raise_err:
@@ -528,7 +531,6 @@ class TaskGuardTest(asynctest.TestCase):
                 t = guard.create_task(self.waster.waste('B', cycles=20, raise_err=True))
                 await asyncio.wait([t], loop=loop)
                 raise SomeOtherException()  # gets raised as well
-        await waste_cycles(10)
         self.assertIsInstance(cm.exception.__context__, WasteException)
         self.assertEqual(self.waster.completion_order, ['A', 'D'])
 
@@ -555,6 +557,41 @@ class TaskGuardTest(asynctest.TestCase):
         await asyncio.wait([task], loop=self.loop)
         self.assertTrue(task.cancelled())
         self.assertEqual(self.waster.completion_order, ['A', 'D'])
+
+
+class CancelAllTasksTest(asynctest.TestCase):
+
+    def setUp(self):
+        self.waster = Waster()
+
+    async def test_cancel_all_tasks(self):
+        t1 = asyncio.create_task(self.waster.waste('A', cycles=100))
+        t2 = asyncio.create_task(self.waster.waste('B', cycles=200))
+        assert t1 and t2  # shut up lint
+        await waste_cycles(10)
+        await sakaio.cancel_all_tasks(raise_timeout_error=True)
+        self.assertEqual(self.waster.cancelled, ['A', 'B'])
+        self.assertFalse(self.waster.completion_order)
+
+    async def test_cancel_all_tasks_timeout(self):
+        terminate = False
+        async def never_ending():
+            nonlocal terminate
+            while True:
+                try:
+                    await waste_cycles(1)
+                except asyncio.CancelledError:
+                    pass
+                if terminate:
+                    return
+
+        t1 = asyncio.create_task(never_ending())
+        await waste_cycles(10)
+        with self.assertRaises(asyncio.TimeoutError), \
+             self.assertLogs('sakaio', logging.WARNING):
+            await sakaio.cancel_all_tasks(timeout=0, raise_timeout_error=True)
+        terminate = True
+        await t1
 
 
 if __name__ == '__main__':

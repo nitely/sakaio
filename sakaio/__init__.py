@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from sakaio.sakaio import (
+    cancel_all_tasks,
     RetList,
     concurrent,
     sequential,
@@ -14,6 +15,7 @@ from sakaio.sakaio import (
     ALL_COMPLETED)
 
 __all__ = [
+    'cancel_all_tasks',
     'RetList',
     'concurrent',
     'sequential',

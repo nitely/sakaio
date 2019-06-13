@@ -1,6 +1,64 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import logging
+
+logger = logging.getLogger('sakaio')
+
+
+async def cancel_all_tasks(*, timeout=None, raise_timeout_error=False):
+    """
+    Cancel all tasks and wait for cancellation.\
+    Use this before terminating the program to allow\
+    tasks clean-up.
+
+    Task errors are logged as warnings. Tasks that did not finish\
+    are logged as warnings. The logger is called ``sakaio``.
+
+    Raise ``asyncio.TimeoutError`` if ``raise_timeout_error=True`` and\
+    the provided timeout is reached.\
+    This function may never return if a timeout is not provided, since\
+    tasks are allowed to ignore cancellation.
+
+    asyncio's `run()` does something similar at exit, except it has no timeout.
+
+    Usage::
+
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.run_until_complete(sakaio.cancel_all_tasks(timeout=10))
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
+
+    """
+    def _warn_pending():
+        running = asyncio.all_tasks(loop=loop)
+        if running:
+            logger.warning(
+                'There are %s pending tasks, first 10: %r',
+                len(running), list(running)[:10])
+
+    loop = asyncio.get_event_loop()
+    running = asyncio.all_tasks(loop=loop)
+    for t in running:
+        t.cancel()
+    for f in asyncio.as_completed(running, timeout=timeout, loop=loop):
+        try:
+            await f
+        except asyncio.CancelledError:
+            pass
+        except asyncio.TimeoutError:
+            _warn_pending()
+            if raise_timeout_error:
+                raise
+            return
+        except Exception:
+            logger.warning('Task Error!', exc_info=True)
+            pass
+    # Tasks scheduled by clean-ups or
+    # by tasks ignoring cancellation
+    _warn_pending()
 
 
 FIRST_COMPLETED = asyncio.FIRST_COMPLETED
@@ -64,6 +122,7 @@ async def _wait_completion(fs, *, loop, cancel_on_first_ex=False):
         counter -= 1
         if counter <= 0:
             if not waiter.done():
+                assert len(result) == len(fs)
                 waiter.set_result(result)
         if (not exiting and
                 cancel_on_first_ex and
@@ -267,6 +326,9 @@ async def sequential(*aws, loop=None, return_exceptions=False):
     return results
 
 
+# XXX remove task list, use a set and remove task on_completed
+# XXX make long stack traces optional. Creating a bazillion tasks that fail
+#     create a huge traceback
 class TaskGuard:
     """
     Create tasks and wait for them to finish.
@@ -306,6 +368,8 @@ class TaskGuard:
         if exc_value is not None:
             for t in self._tasks:
                 t.cancel()
+            # Avoid cancelling again,
+            # in case a task does cleanup on cancel
             cancel_on_first_ex = False
 
         ts = await _wait_completion(

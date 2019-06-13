@@ -18,6 +18,27 @@ pip install sakaio
 
 Python +3.5
 
+## Cancel All Tasks
+
+This allows to cancel all pending tasks at exit.
+`asyncio.run()` does this, however it has no way to set
+a timeout, so if a task ignores cancellation, it will never return
+
+Warnings about pending tasks are logged to `sakaio` logger.
+
+```python
+import sakaio
+
+# ...
+
+try:
+    loop.run_until_complete(coro)
+finally:
+    loop.run_until_complete(sakaio.cancel_all_tasks(timeout=10))
+    loop.run_until_complete(loop.shutdown_asyncgens())
+    loop.close()
+```
+
 ## Concurrent
 
 Concurrent is the pythonic alternative
